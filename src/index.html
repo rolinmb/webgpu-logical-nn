@@ -102,6 +102,8 @@
                 passEncoder.dispatchWorkgroups(4); // 4 workgroups for 4 inputs
                 passEncoder.end();
 
+                device.queue.submit([ commandEncoder.finish() ]);
+
                 // Copy output buffer to a read buffer
                 const readBuffer = device.createBuffer({
                     size: outputBuffer.size,
