@@ -11,6 +11,8 @@
                     console.error("WebGPU not supported on this browser.");
                     return;
                 }
+
+                const EPOCHS = 100;
                 const adapter = await navigator.gpu.requestAdapter();
                 const device = await adapter.requestDevice();
 
@@ -95,14 +97,15 @@
                     ],
                 });
 
-                const commandEncoder = device.createCommandEncoder();
-                const passEncoder = commandEncoder.beginComputePass();
-                passEncoder.setPipeline(computePipeline);
-                passEncoder.setBindGroup(0, bindGroup);
-                passEncoder.dispatchWorkgroups(4); // 4 workgroups for 4 inputs
-                passEncoder.end();
-
-                device.queue.submit([ commandEncoder.finish() ]);
+                for (let e = 0; e < EPOCHS; e++) {
+                    const commandEncoder = device.createCommandEncoder();
+                    const passEncoder = commandEncoder.beginComputePass();
+                    passEncoder.setPipeline(computePipeline);
+                    passEncoder.setBindGroup(0, bindGroup);
+                    passEncoder.dispatchWorkgroups(4); // 4 workgroups for 4 inputs
+                    passEncoder.end();
+                    device.queue.submit([ commandEncoder.finish() ]);
+                }
 
                 // Copy output buffer to a read buffer
                 const readBuffer = device.createBuffer({
@@ -117,7 +120,7 @@
                 // Wait for the read buffer to be ready and map it
                 await readBuffer.mapAsync(GPUMapMode.READ);
                 const resultArray = new Float32Array(readBuffer.getMappedRange());
-                console.log("Outputs:", Array.from(resultArray));
+                console.log(`Output after ${EPOCHS} epochs:`, Array.from(resultArray));
             }
             main();
         </script>
