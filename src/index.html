@@ -12,7 +12,7 @@
                     return;
                 }
 
-                const EPOCHS = 100;
+                const EPOCHS = 1000;
                 const adapter = await navigator.gpu.requestAdapter();
                 const device = await adapter.requestDevice();
 
@@ -53,29 +53,49 @@
                 const shaderModule = device.createShaderModule({
                     code: `
                     @group(0) @binding(0) var<storage, read> inputs: array<f32>;
-                    @group(0) @binding(1) var<storage, read> weights: array<f32>;
-                    @group(0) @binding(2) var<storage, read_write> outputs: array<f32>;
+                    @group(0) @binding(1) var<storage, read_write> weights: array<f32>;
+                    @group(0) @binding(2) var<storage, read> targets: array<f32>;
+                    @group(0) @binding(3) var<storage, read_write> outputs: array<f32>;
 
                     @compute @workgroup_size(1)
                     fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                         let idx = id.x;
                         let x1 = inputs[idx * 2];
                         let x2 = inputs[idx * 2 + 1];
-                        let w1 = weights[0];
-                        let w2 = weights[1];
-                        let bias = weights[2];
+                        var w1 = weights[0];
+                        var w2 = weights[1];
+                        var bias = weights[2];
                         let sum = x1 * w1 + x2 * w2 + bias;
 
                         // Sigmoid activation
-                        outputs[idx] = 1.0 / (1.0 + exp(-sum));
+                        let prediction = 1.0 / (1.0 + exp(-sum));
+                        outputs[idx] = prediction;
+
+                        // Error and weight update (Gradient Descent)
+                        let desired_output = targets[idx];
+                        let error = desired_output - prediction;
+
+                        // Learning rate
+                        let lr = 0.1;
+
+                        // Update weights (no atomic operations)
+                        w1 += lr * error * x1;
+                        w2 += lr * error * x2;
+                        bias += lr * error;
+
+                        // Write back weights
+                        weights[0] = w1;
+                        weights[1] = w2;
+                        weights[2] = bias;
                     }`
                 });
 
                 const bindGroupLayout = device.createBindGroupLayout({
                     entries: [
-                        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-                        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-                        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+                    { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+                    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+                    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
                     ],
                 });
 
@@ -93,7 +113,8 @@
                     entries: [
                         { binding: 0, resource: { buffer: inputBuffer } },
                         { binding: 1, resource: { buffer: weightBuffer } },
-                        { binding: 2, resource: { buffer: outputBuffer } },
+                        { binding: 2, resource: { buffer: targetBuffer } },
+                        { binding: 3, resource: { buffer: outputBuffer } },
                     ],
                 });
 
