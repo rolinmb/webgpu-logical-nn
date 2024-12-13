@@ -12,13 +12,13 @@
                     return;
                 }
 
-                const EPOCHS = 1000;
-                const LR = 100.0; // learning rate
+                const EPOCHS = 100000;
+                const LR = 10.0; // learning rate
                 const adapter = await navigator.gpu.requestAdapter();
                 const device = await adapter.requestDevice();
 
                 // AND gate inputs and targets
-                const inputs = new Float32Array([0, 0, 0, 1, 1, 0, 1, 1]);
+                const inputs = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
                 const targets = new Float32Array([0, 0, 0, 1]);
 
                 // Buffers for inputs, targets, weights, and outputs
