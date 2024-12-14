@@ -31,7 +31,8 @@
                 const device = await adapter.requestDevice();
                 
                 const EPOCHS = 1000000;
-                const LR = 10.0; // learning rate
+                const LR_INIT = 10.0; // learning rate
+                const lrDecayRate = 1.0;
                 const inputs = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
                 const targets = new Float32Array([0, 0, 0, 1]); // AND
                 //const targets = new Float32Array([1, 1, 1, 0]); // NAND
@@ -78,12 +79,21 @@
                     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
                 });
 
+                const lrBuffer = device.createBuffer({
+                    size: Float32Array.BYTES_PER_ELEMENT,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                    mappedAtCreation: true,
+                });
+                new Float32Array(lrBuffer.getMappedRange()).set([LR_INIT]);
+                lrBuffer.unmap();
+
                 const shaderModule = device.createShaderModule({
                     code: `
                     @group(0) @binding(0) var<storage, read> inputs: array<f32>;
                     @group(0) @binding(1) var<storage, read_write> weights: array<f32>;
                     @group(0) @binding(2) var<storage, read> targets: array<f32>;
                     @group(0) @binding(3) var<storage, read_write> outputs: array<f32>;
+                    @group(0) @binding(4) var<uniform> learningRate: f32;
 
                     @compute @workgroup_size(1)
                     fn main(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -117,9 +127,9 @@
                         let error = desired_output - prediction;
 
                         // Update weights (no atomic operations)
-                        w1 += ${LR} * error * x1;
-                        w2 += ${LR} * error * x2;
-                        bias += ${LR} * error;
+                        w1 += learningRate * error * x1;
+                        w2 += learningRate * error * x2;
+                        bias += learningRate * error;
 
                         // Write back weights
                         weights[0] = w1;
@@ -134,6 +144,7 @@
                     { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
                     { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
                     { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+                    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
                     ],
                 });
 
@@ -153,10 +164,14 @@
                         { binding: 1, resource: { buffer: weightBuffer } },
                         { binding: 2, resource: { buffer: targetBuffer } },
                         { binding: 3, resource: { buffer: outputBuffer } },
+                        { binding: 4, resource: { buffer: lrBuffer } },
                     ],
                 });
 
+                let learningRate = LR_INIT;
+
                 for (let e = 0; e < EPOCHS; e++) {
+                    device.queue.writeBuffer(lrBuffer, 0, new Float32Array([learningRate]));
                     const commandEncoder = device.createCommandEncoder();
                     const passEncoder = commandEncoder.beginComputePass();
                     passEncoder.setPipeline(computePipeline);
@@ -164,6 +179,7 @@
                     passEncoder.dispatchWorkgroups(4); // 4 workgroups for 4 inputs
                     passEncoder.end();
                     device.queue.submit([ commandEncoder.finish() ]);
+                    learningRate *= lrDecayRate;
                 }
 
                 // Copy output buffer to a read buffer
